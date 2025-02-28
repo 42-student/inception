@@ -1,0 +1,141 @@
+version: '3'  # Specify the Docker Compose version
+
+services:
+  nginx:  # Nginx service (acts as a reverse proxy and serves the WordPress site)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/nginx/Dockerfile  # Path to the Nginx Dockerfile
+    container_name: nginx  # Set a custom container name
+    depends_on:
+      - wordpress  # Ensure WordPress starts before Nginx
+    ports:
+      - "443:443"  # Map host port 443 (HTTPS) to container port 443
+    networks:
+      - inception  # Connect to the custom network
+    volumes:
+      - ./requirements/nginx/conf/:/etc/nginx/http.d/  # Mount Nginx configuration files
+      - ./requirements/nginx/tools:/etc/nginx/ssl/  # Mount SSL certificate files
+      - wp-volume:/var/www/  # Share WordPress files with Nginx
+    restart: always  # Ensure the container restarts on failure
+
+  mariadb:  # MariaDB service (Database for WordPress)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/mariadb/Dockerfile  # Path to the MariaDB Dockerfile
+      args:  # Build arguments passed from the environment file (.env)
+        DB_NAME: ${DB_NAME}  # Database name
+        DB_USER: ${DB_USER}  # Database username
+        DB_PASS: ${DB_PASS}  # Database password
+        DB_ROOT: ${DB_ROOT}  # Root password
+    container_name: mariadb  # Set a custom container name
+    ports:
+      - "3306:3306"  # Expose MySQL on port 3306
+    networks:
+      - inception  # Connect to the custom network
+    volumes:
+      - db-volume:/var/lib/mysql  # Persist database data in a volume
+    restart: always  # Restart container if it stops
+
+  wordpress:  # WordPress service (Web application)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/wordpress/Dockerfile  # Path to the WordPress Dockerfile
+      args:  # Build arguments passed from the environment file (.env)
+        DB_NAME: ${DB_NAME}  # Database name
+        DB_USER: ${DB_USER}  # Database username
+        DB_PASS: ${DB_PASS}  # Database password
+    container_name: wordpress  # Set a custom container name
+    depends_on:
+      - mariadb  # Ensure MariaDB starts before WordPress
+    restart: always  # Restart container if it stops
+    networks:
+      - inception  # Connect to the custom network
+    volumes:
+      - wp-volume:/var/www/  # Persist WordPress files
+
+  redis:  # Redis service (Caching system for WordPress optimization)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/bonus/redis/Dockerfile  # Path to the Redis Dockerfile
+    container_name: redis  # Set a custom container name
+    ports:
+      - "6379:6379"  # Expose Redis on port 6379
+    networks:
+      - inception  # Connect to the custom network
+    restart: always  # Ensure Redis restarts on failure
+
+  vsftpd:  # FTP server (for file transfer to the WordPress site)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/bonus/vsftpd/Dockerfile  # Path to the vsftpd Dockerfile
+      args:
+        FTP_USR: ${FTP_USR}  # FTP username
+        FTP_PWD: ${FTP_PWD}  # FTP password
+    container_name: vsftpd  # Set a custom container name
+    ports:
+      - "21:21"  # Expose FTP on port 21
+    volumes:
+      - wp-volume:/var/www/  # Share WordPress files with FTP server
+    networks:
+      - inception  # Connect to the custom network
+    restart: always  # Ensure the container restarts on failure
+
+  adminer:  # Adminer service (Database management tool for MariaDB)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/bonus/adminer/Dockerfile  # Path to the Adminer Dockerfile
+    container_name: adminer  # Set a custom container name
+    depends_on:
+      - mariadb  # Ensure MariaDB starts before Adminer
+    ports:
+      - "8080:8080"  # Expose Adminer on port 8080
+    networks:
+      - inception  # Connect to the custom network
+    restart: always  # Ensure Adminer restarts on failure
+
+  website:  # Static website service (optional additional site)
+    build:
+      context: .  # Use the current directory as the build context
+      dockerfile: requirements/bonus/website/Dockerfile  # Path to the website Dockerfile
+    container_name: website  # Set a custom container name
+    ports:
+      - "9090:9090"  # Expose the website on port 9090 (HTTP)
+    restart: always  # Ensure the container restarts on failure
+
+  portainer:  # Portainer service (Docker UI)
+    build:
+      context: .  # Build the image from the current directory
+      dockerfile: requirements/bonus/portainer/Dockerfile  # Path to your custom Portainer Dockerfile
+    container_name: portainer  # Set a custom container name
+    ports:
+      - "8000:8000"  # Expose Portainer's HTTP port
+      - "9443:9443"  # Expose Portainer's HTTPS port
+    networks:
+      - inception  # Connect to the custom network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Allow Portainer to manage Docker
+      - po-volume:/data/  # Persist Portainer files
+    restart: always  # Ensure the container restarts on failure
+
+volumes:
+  wp-volume:  # Volume for WordPress files
+    driver_opts:
+      o: bind  # Bind mount instead of a named volume
+      type: none  # No special type, just a directory binding
+      device: /home/${USER}/data/wordpress  # Host directory for WordPress files
+
+  db-volume:  # Volume for MariaDB data
+    driver_opts:
+      o: bind  # Bind mount instead of a named volume
+      type: none  # No special type, just a directory binding
+      device: /home/${USER}/data/mariadb  # Host directory for MariaDB data
+
+  po-volume:  # Volume for Portainer data
+    driver_opts:
+      o: bind  # Bind mount instead of a named volume
+      type: none  # No special type, just a directory binding
+      device: /home/${USER}/data/portainer  # Host directory for Portainer data
+
+networks:
+  inception:  # Custom Docker network for all services
+    driver: bridge  # Use a bridge network for isolated communication between containers
